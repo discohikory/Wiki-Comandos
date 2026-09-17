@@ -75,6 +75,18 @@ footer strong{color:#fff}
   <div class="chips" id="chips"></div>
   <div id="list"></div>
   <div class="card glass" style="margin-top:22px">
+    <h2 class="st">🏗️ Constructor de rangos LuckPerms</h2>
+    <p class="muted">Define rangos con herencia y prefijos y genera el script completo para pegar en consola. Se guarda en tu navegador.</p>
+    <div class="rowbtns"><button type="button" class="btn" id="lpAdd">+ Agregar rango</button><button type="button" class="btn" id="lpReset">Restablecer ejemplo</button></div>
+    <div id="lpChain" class="muted" style="margin:12px 0"></div>
+    <div id="lpWarn"></div>
+    <div id="lpEditor" class="tut-grid"></div>
+    <h2 class="st" style="margin-top:16px">📜 Script generado</h2>
+    <pre class="tpl" id="lpOut"></pre>
+    <div class="rowbtns"><button type="button" class="btn primary" id="lpCopy">Copiar script 📋</button><button type="button" class="btn" id="lpDl">Descargar .txt</button><button type="button" class="btn" id="lpAi">🔍 Revisar con IA</button></div>
+    <div class="ai-slot" id="lpAiOut"></div>
+  </div>
+  <div class="card glass" style="margin-top:22px">
     <h2 class="st">🎓 Tutoriales rápidos</h2>
     <div class="tut-grid">
       <div><b>LuckPerms en 3 pasos</b><ol><li>Instala <b>LuckPerms</b> y reinicia.</li><li>Crea grupos: <b>/lp creategroup mod</b>.</li><li>Da permisos: <b>/lp group mod permission set essentials.kick true</b>.</li><li>Asigna el grupo: <b>/lp user &lt;nick&gt; parent set mod</b>.</li></ol></div>
@@ -183,6 +195,95 @@ document.addEventListener('click',e=>{
   }
 });
 paintChips();paint();
+
+// ============ CONSTRUCTOR DE RANGOS ============
+const LP_DEFAULT=[
+ {name:"default",prefix:"&7[Miembro]",parent:"",perms:"essentials.home\nessentials.tpa\nessentials.warp\nessentials.kit.inicial"},
+ {name:"vip",prefix:"&6[VIP]",parent:"default",perms:"essentials.fly\nessentials.nick\nessentials.kit.vip"},
+ {name:"mod",prefix:"&9[MOD]",parent:"vip",perms:"essentials.kick\nessentials.mute\nessentials.tempban"},
+ {name:"admin",prefix:"&c[ADMIN]",parent:"mod",perms:"essentials.ban\nminecraft.command.op"}
+];
+const lpGet=()=>{try{const v=JSON.parse(localStorage.getItem('lp_ranks'));return Array.isArray(v)&&v.length?v:null}catch(e){return null}};
+const lpSet=v=>{try{localStorage.setItem('lp_ranks',JSON.stringify(v))}catch(e){}};
+let lpRanks=lpGet()||JSON.parse(JSON.stringify(LP_DEFAULT));
+const escA=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+function lpRenderEditor(){
+  const names=lpRanks.map(r=>r.name.trim()).filter(Boolean);
+  document.getElementById('lpEditor').innerHTML=lpRanks.map((r,i)=>{
+    const opts=['<option value="">(sin herencia)</option>'].concat(names.filter(n=>n!==r.name.trim()).map(n=>`<option value="${escA(n)}"${r.parent===n?" selected":""}>${esc(n)}</option>`)).join('');
+    return `<div class="card glass" style="margin:0"><label>Nombre<input data-lp="${i}|name" value="${escA(r.name)}" maxlength="24"></label><label>Prefijo (códigos &amp; valen)<input data-lp="${i}|prefix" value="${escA(r.prefix)}" maxlength="30" placeholder="&7[Miembro]"></label><label>Hereda de<select data-lp="${i}|parent">${opts}</select></label><label>Permisos (uno por línea)<textarea data-lp="${i}|perms" rows="4" placeholder="essentials.home">${escA(r.perms)}</textarea></label><div class="rowbtns"><button type="button" class="btn danger" data-lpdel="${i}">Eliminar rango</button></div></div>`;
+  }).join('');
+}
+function lpAnalyze(){
+  const warns=[],names=lpRanks.map(r=>r.name.trim());
+  const seen={};
+  names.forEach(n=>{if(!n)warns.push("Hay un rango sin nombre.");else{seen[n]=(seen[n]||0)+1}});
+  Object.keys(seen).forEach(n=>{if(seen[n]>1)warns.push(`Nombre duplicado: "${n}".`)});
+  lpRanks.forEach(r=>{
+    if(r.parent&&!names.includes(r.parent))warns.push(`"${r.name||"?"} hereda de "${r.parent}", que no existe.`);
+    (r.perms||"").split("\n").forEach(p=>{p=p.trim();if(/(^|\.)\*$/.test(p))warns.push(`"${r.name||"?"} usa comodín "${p}": dalo solo a admins.`)});
+  });
+  const cyc=lpRanks.some(r=>{let p=r.parent,seen2={};while(p){if(p===r.name.trim()||seen2[p])return true;seen2[p]=1;const nx=lpRanks.find(x=>x.name.trim()===p);p=nx?nx.parent:""}return false});
+  if(cyc)warns.push("Hay herencia circular (A hereda de B que hereda de A).");
+  return warns;
+}
+function lpScript(){
+  const L=["# Script LuckPerms — generado por Wiki de Comandos",""];
+  lpRanks.forEach(r=>{
+    const n=r.name.trim()||"rango";
+    L.push(`/lp creategroup ${n}`);
+    (r.perms||"").split("\n").map(s=>s.trim()).filter(Boolean).forEach(p=>L.push(`/lp group ${n} permission set ${p}`));
+    if(r.parent)L.push(`/lp group ${n} parent add ${r.parent}`);
+    if(r.prefix.trim())L.push(`/lp group ${n} meta setprefix "${r.prefix.trim()} "`);
+    L.push("");
+  });
+  L.push("# Asignar un jugador:","# /lp user <nick> parent set <rango>");
+  return L.join("\n");
+}
+function lpRefresh(){
+  const names=lpRanks.map(r=>r.name.trim()).filter(Boolean);
+  document.getElementById('lpChain').innerHTML="<b>Cadena:</b> "+(names.length?names.map(n=>{const r=lpRanks.find(x=>x.name.trim()===n);return esc(n)+(r&&r.parent?` <small>← ${esc(r.parent)}</small>`:"")}).join(" · "):"—");
+  const w=lpAnalyze();
+  document.getElementById('lpWarn').innerHTML=w.map(x=>`<p class="muted" style="color:#fca5a5">⚠️ ${esc(x)}</p>`).join('');
+  document.getElementById('lpOut').textContent=lpScript();
+}
+document.getElementById('lpEditor').addEventListener('input',e=>{
+  const t=e.target.closest?e.target.closest('[data-lp]'):null;
+  if(!t)return;
+  const parts=t.dataset.lp.split('|');
+  lpRanks[Number(parts[0])][parts[1]]=t.value;
+  lpSet(lpRanks);lpRefresh();
+});
+document.getElementById('lpEditor').addEventListener('change',e=>{
+  const t=e.target.closest?e.target.closest('[data-lp]'):null;
+  if(!t||t.tagName!=="SELECT")return;
+  lpRenderEditor();lpRefresh();
+});
+document.addEventListener('click',e=>{
+  if(!e.target.closest)return;
+  const d=e.target.closest('[data-lpdel]');
+  if(d){lpRanks.splice(Number(d.dataset.lpdel),1);if(!lpRanks.length)lpRanks=[{name:"default",prefix:"",parent:"",perms:""}];lpSet(lpRanks);lpRenderEditor();lpRefresh()}
+});
+document.getElementById('lpAdd').addEventListener('click',()=>{lpRanks.push({name:"rango"+(lpRanks.length+1),prefix:"",parent:lpRanks.length?lpRanks[lpRanks.length-1].name.trim():"",perms:""});lpSet(lpRanks);lpRenderEditor();lpRefresh()});
+document.getElementById('lpReset').addEventListener('click',()=>{if(confirm('¿Volver al ejemplo?')){lpRanks=JSON.parse(JSON.stringify(LP_DEFAULT));lpSet(lpRanks);lpRenderEditor();lpRefresh()}});
+document.getElementById('lpCopy').addEventListener('click',()=>copyText(document.getElementById('lpOut').textContent));
+document.getElementById('lpDl').addEventListener('click',()=>{
+  const b=new Blob([document.getElementById('lpOut').textContent],{type:"text/plain"});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download="luckperms-rangos.txt";a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+});
+document.getElementById('lpAi').addEventListener('click',()=>{
+  aiInto(document.getElementById('lpAiOut'),`Revisa esta configuración de rangos LuckPerms (español neutro, máximo 120 palabras): señala errores de herencia, permisos peligrosos o faltantes comunes, y sugiere 1 mejora concreta. Configuración:\n\n${lpScript()}`,document.getElementById('lpAi'));
+});
+function aiInto(slot,prompt,btn){
+  slot.innerHTML='<small class="muted">Generando con IA… ⏳</small>';
+  if(btn)btn.disabled=true;
+  aiChat(prompt).then(r=>{
+    slot.innerHTML=`<pre class="tpl ai-pre"></pre>`;
+    slot.querySelector('.ai-pre').textContent=r.text+`\n\n— vía ${r.via}`;
+  }).catch(()=>{slot.innerHTML='<small class="muted">La IA no responde ahora. Intenta luego. ⚠️</small>'}).finally(()=>{if(btn)btn.disabled=false});
+}
+lpRenderEditor();lpRefresh();
 </script>
 </body>
 </html>
